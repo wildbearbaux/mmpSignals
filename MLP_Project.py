@@ -64,6 +64,11 @@ feature_cols = [c for c in data.columns if c != "Clase"]
 X_raw = data[feature_cols]
 y = data["Clase"]
 
+# Split fijo 80/20 (holdout) con estratificación para comparar de forma justa
+X_train_raw, X_test_raw, y_train, y_test = train_test_split(
+    X_raw, y, test_size=0.20, random_state=42, stratify=y
+)
+
 # ── Arquitecturas a comparar ──────────────────────────────────────────────────
 
 architectures = {
@@ -98,10 +103,10 @@ def make_pipeline(hidden_layers: tuple) -> Pipeline:
 cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 results = {}
 
-print("\n── Todas las features ──────────────────────────────────────────")
+print("\n── Todas las features (CV solo en train 80%) ───────────────────")
 for name, layers in architectures.items():
     pipe = make_pipeline(layers)
-    scores = cross_val_score(pipe, X_raw, y, cv=cv, scoring="accuracy")
+    scores = cross_val_score(pipe, X_train_raw, y_train, cv=cv, scoring="accuracy")
     results[name] = scores.mean()
     print(f"  {name:20s}  {scores.mean():.4f} ± {scores.std():.4f}")
 
@@ -112,9 +117,14 @@ print(f"\n  ✔ Mejor arquitectura: {best_name} ({results[best_name]:.4f})")
 # ── Modelo final con todas las features ──────────────────────────────────────
 
 best_pipe = make_pipeline(best_layers)
-best_pipe.fit(X_raw, y)
+best_pipe.fit(X_train_raw, y_train)
 plot_loss_curve(best_pipe.named_steps["mlp"].loss_curve_,
                 title=f"Curva de pérdida — {best_name} (todas las features)")
+
+y_test_pred = best_pipe.predict(X_test_raw)
+print(f"\n  Accuracy holdout 20% (todas las features): {accuracy_score(y_test, y_test_pred):.4f}")
+print(classification_report(y_test, y_test_pred))
+plot_confusion_matrix(y_test, y_test_pred, title=f"Confusión — {best_name} (todas las features)")
 
 # ── Modelo con features reducidas ────────────────────────────────────────────
 
@@ -122,10 +132,13 @@ X_reduced = remove_redundancy_by_corr_threshold(X_raw, threshold=0.85)
 dropped = set(X_raw.columns) - set(X_reduced.columns)
 print(f"\n── Features eliminadas por correlación alta: {dropped}")
 
+X_train_reduced = X_train_raw[X_reduced.columns]
+X_test_reduced = X_test_raw[X_reduced.columns]
+
 results_reduced = {}
 for name, layers in architectures.items():
     pipe = make_pipeline(layers)
-    scores = cross_val_score(pipe, X_reduced, y, cv=cv, scoring="accuracy")
+    scores = cross_val_score(pipe, X_train_reduced, y_train, cv=cv, scoring="accuracy")
     results_reduced[name] = scores.mean()
     print(f"  {name:20s}  {scores.mean():.4f} ± {scores.std():.4f}")
 
@@ -134,11 +147,11 @@ best_layers_r = architectures[best_name_r]
 print(f"\n  ✔ Mejor con features reducidas: {best_name_r} ({results_reduced[best_name_r]:.4f})")
 
 best_pipe_r = make_pipeline(best_layers_r)
-best_pipe_r.fit(X_reduced, y)
+best_pipe_r.fit(X_train_reduced, y_train)
 plot_loss_curve(best_pipe_r.named_steps["mlp"].loss_curve_,
                 title=f"Curva de pérdida — {best_name_r} (features reducidas)")
 
-y_pred_r = best_pipe_r.predict(X_reduced)
-print(f"\n  Accuracy final (features reducidas): {accuracy_score(y, y_pred_r):.4f}")
-print(classification_report(y, y_pred_r))
-plot_confusion_matrix(y, y_pred_r, title=f"Confusión — {best_name_r} (features reducidas)")
+y_pred_r = best_pipe_r.predict(X_test_reduced)
+print(f"\n  Accuracy holdout 20% (features reducidas): {accuracy_score(y_test, y_pred_r):.4f}")
+print(classification_report(y_test, y_pred_r))
+plot_confusion_matrix(y_test, y_pred_r, title=f"Confusión — {best_name_r} (features reducidas)")

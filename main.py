@@ -4,7 +4,10 @@ import seaborn as sns
 import numpy as np
 from sklearn.metrics import confusion_matrix, accuracy_score
 from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import cross_val_predict
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report
 
 
 data = pd.read_excel("DataSet_completo.xlsx")
@@ -35,6 +38,9 @@ df_filtered = normalized_data.drop(columns=to_drop)
 corr_matrix = df_filtered.corr()
 
 x, y = df_filtered.drop(columns=['Clase']), data['Clase']
+X_train, X_test, y_train, y_test = train_test_split(
+    x, y, test_size=0.20, random_state=42, stratify=y
+)
 
 
 
@@ -47,22 +53,32 @@ plt.tight_layout()
 plt.show()
 
 neural_net = MLPClassifier(hidden_layer_sizes=(6, 5), activation='relu',
-                           solver='adam', learning_rate_init=0.1,
+                           solver='adam', learning_rate_init=0.001,
                            max_iter=50_000,
                            random_state=42)
 
-y_pred = cross_val_predict(neural_net, x, y, cv=5)
-conf_matrix = confusion_matrix(y, y_pred)
+pipeline = Pipeline([
+    ("scaler", StandardScaler()),
+    ("mlp", neural_net),
+])
+
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+cv_scores = cross_val_score(pipeline, X_train, y_train, cv=cv, scoring="accuracy")
+print(f"CV accuracy (train 80%): {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
+
+pipeline.fit(X_train, y_train)
+y_pred = pipeline.predict(X_test)
+conf_matrix = confusion_matrix(y_test, y_pred)
 
 sns.heatmap(conf_matrix, annot=True,  annot_kws={"size": 12})
 plt.show()
 
-accuracy = accuracy_score(y, y_pred)
+accuracy = accuracy_score(y_test, y_pred)
 
-print('Accuracy: ', accuracy * 100, ' %')
+print('Accuracy test (20%): ', accuracy * 100, ' %')
+print(classification_report(y_test, y_pred))
 
 
 
 # sns.heatmap(corr_matrix, cmap="YlGnBu", annot=True, xticklabels=True, yticklabels=True)
 # plt.show()
-
